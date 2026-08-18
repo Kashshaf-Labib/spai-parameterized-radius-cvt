@@ -1,0 +1,26 @@
+# Requirements for running SPAI on a Kaggle GPU notebook.
+#
+# IMPORTANT: numpy, pandas, scipy, torch, torchvision, opencv, tensorboard, pillow,
+# seaborn, pyyaml and tqdm are ALREADY preinstalled on Kaggle with mutually
+# ABI-compatible versions. Do NOT reinstall or pin them here. In particular, pinning
+# numpy < 2.0 downgrades numpy and breaks Kaggle's pandas (compiled against numpy 2.x),
+# raising "ValueError: numpy.dtype size changed". Only the genuinely missing packages
+# are listed below.
+#
+# APEX is NOT installed; run training with --amp-opt-level O0.
+#
+# timm is intentionally pinned to 0.4.12 because the code uses old APIs
+# (timm.data.transforms._pil_interp, timm.scheduler.cosine_lr, etc.). This downgrades
+# Kaggle's newer timm, which is safe (pure Python, no numpy ABI dependency).
+timm==0.4.12
+torchmetrics
+yacs~=0.1.8
+einops
+albumentations==1.4.14
+albucore==0.0.16
+lmdb
+filetype
+termcolor
+click
+gdown
+git+https://github.com/openai/CLIP.git
