@@ -16,6 +16,7 @@
 
 from .swin_transformer import build_swin
 from .vision_transformer import build_vit
+from .cvt import build_cvt
 from .sid import build_cls_vit, build_mf_vit
 from .mfm import build_mfm
 
@@ -29,6 +30,8 @@ def build_model(config, is_pretrain=True):
             model = build_swin(config)
         elif model_type == 'vit':
             model = build_vit(config)
+        elif model_type == 'cvt':
+            model = build_cvt(config)
         else:
             raise NotImplementedError(f"Unknown fine-tune model: {model_type}")
 
@@ -40,7 +43,7 @@ def build_cls_model(config):
     task_type = config.MODEL.SID_APPROACH
     if model_type == "vit" and task_type == "single_extraction":
         model = build_cls_vit(config)
-    elif model_type == "vit" and task_type == "freq_restoration":
+    elif model_type in ("vit", "cvt") and task_type == "freq_restoration":
         model = build_mf_vit(config)
     else:
         raise NotImplementedError(f"Unknown cls model: {model_type}")

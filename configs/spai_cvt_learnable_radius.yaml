@@ -1,0 +1,10 @@
+BASE: ["spai_cvt.yaml"]
+
+MODEL:
+  NAME: finetune_cvt_learnable_radius
+  FRE:
+    LEARNABLE_MASKING_RADIUS: True
+    MASK_TEMPERATURE: 1.0
+
+TRAIN:
+  RADIUS_LR: 0.01

@@ -5,7 +5,8 @@ from torch import nn
 
 from spai.config import get_config
 from spai.models.cvt import build_cvt
-from spai.models.sid import MFViT
+from spai.models.build import build_cls_model
+from spai.models.sid import MFViT, PatchBasedMFViT
 from spai.utils import extract_mfm_encoder_state_dict
 
 
@@ -87,3 +88,32 @@ class TestCvtBackbone(unittest.TestCase):
             model(torch.rand(1, 3, 32, 32))
         for before, module in zip(running_means, batch_norms):
             self.assertTrue(torch.equal(before, module.running_mean))
+
+    def test_phase_two_builder_uses_cvt_feature_dimensions(self):
+        config = get_config({"cfg": "configs/spai_cvt.yaml"})
+
+        model = build_cls_model(config)
+
+        self.assertIsInstance(model, PatchBasedMFViT)
+        self.assertIsInstance(model.get_vision_transformer(), type(self.cvt_backbone))
+        self.assertEqual(model.cls_vector_dim, 1084)
+        self.assertEqual(model.cls_head.head[0].in_features, 1084)
+
+        features = torch.randn(1, 10, 4, 384)
+        with torch.no_grad():
+            spectral_vector = model.mfvit.features_processor(
+                features, features, features
+            )
+        self.assertEqual(spectral_vector.shape, (1, 1084))
+
+    def test_cvt_learnable_radius_config_inherits_cvt_settings(self):
+        config = get_config({"cfg": "configs/spai_cvt_learnable_radius.yaml"})
+
+        model = build_cls_model(config)
+
+        self.assertEqual(config.MODEL.TYPE, "cvt")
+        self.assertTrue(config.MODEL.FRE.LEARNABLE_MASKING_RADIUS)
+        self.assertEqual(config.MODEL.CVT.FEATURE_LAYERS, list(range(10)))
+        self.assertIsInstance(model, PatchBasedMFViT)
+        self.assertTrue(model.mfvit.learnable_radius)
+        self.assertEqual(model.cls_vector_dim, 1084)

@@ -1238,43 +1238,69 @@ def build_cls_vit(config) -> ClassificationVisionTransformer:
 
 def build_mf_vit(config) -> MFViT:
     # Build features extractor.
-    if config.MODEL_WEIGHTS == "mfm":
+    if config.MODEL.TYPE == "cvt":
+        if config.MODEL_WEIGHTS != "mfm":
+            raise RuntimeError(
+                "The CvT phase-two model currently requires MODEL_WEIGHTS='mfm'"
+            )
+        vit: cvt.CvtBackbone = cvt.build_cvt(config)
+        initialization_scope: str = "local"
+        features_num = vit.num_features
+        input_dim = vit.feature_dim
+        feature_config = config.MODEL.CVT
+    elif config.MODEL.TYPE == "vit" and config.MODEL_WEIGHTS == "mfm":
         vit: vision_transformer.VisionTransformer = vision_transformer.build_vit(config)
         initialization_scope: str = "all"
-    elif config.MODEL_WEIGHTS == "clip":
+        features_num = len(config.MODEL.VIT.INTERMEDIATE_LAYERS)
+        input_dim = config.MODEL.VIT.EMBED_DIM
+        feature_config = config.MODEL.VIT
+    elif config.MODEL.TYPE == "vit" and config.MODEL_WEIGHTS == "clip":
         vit: backbones.CLIPBackbone = backbones.CLIPBackbone()
         initialization_scope: str = "local"
-    elif config.MODEL_WEIGHTS == "dinov2":
+        features_num = len(config.MODEL.VIT.INTERMEDIATE_LAYERS)
+        input_dim = config.MODEL.VIT.EMBED_DIM
+        feature_config = config.MODEL.VIT
+    elif config.MODEL.TYPE == "vit" and config.MODEL_WEIGHTS == "dinov2":
         vit: backbones.DINOv2Backbone = backbones.DINOv2Backbone()
         initialization_scope: str = "local"
-    elif config.MODEL_WEIGHTS in ["dinov2_vitl14", "dinov2_vitg14"]:
+        features_num = len(config.MODEL.VIT.INTERMEDIATE_LAYERS)
+        input_dim = config.MODEL.VIT.EMBED_DIM
+        feature_config = config.MODEL.VIT
+    elif (config.MODEL.TYPE == "vit"
+          and config.MODEL_WEIGHTS in ["dinov2_vitl14", "dinov2_vitg14"]):
         vit: backbones.DINOv2Backbone = backbones.DINOv2Backbone(
             dinov2_model=config.MODEL_WEIGHTS,
             intermediate_layers=config.MODEL.VIT.INTERMEDIATE_LAYERS
         )
         initialization_scope: str = "local"
+        features_num = len(config.MODEL.VIT.INTERMEDIATE_LAYERS)
+        input_dim = config.MODEL.VIT.EMBED_DIM
+        feature_config = config.MODEL.VIT
     else:
-        raise RuntimeError(f"Unsupported ViT weights type: {config.MODEL_WEIGHTS}")
+        raise RuntimeError(
+            f"Unsupported backbone/weights combination: MODEL.TYPE={config.MODEL.TYPE}, "
+            f"MODEL_WEIGHTS={config.MODEL_WEIGHTS}"
+        )
 
     # Build features processor.
     fre: FrequencyRestorationEstimator = FrequencyRestorationEstimator(
-        features_num=len(config.MODEL.VIT.INTERMEDIATE_LAYERS),
-        input_dim=config.MODEL.VIT.EMBED_DIM,
-        proj_dim=config.MODEL.VIT.PROJECTION_DIM,
-        proj_layers=config.MODEL.VIT.PROJECTION_LAYERS,
-        patch_projection=config.MODEL.VIT.PATCH_PROJECTION,
-        patch_projection_per_feature=config.MODEL.VIT.PATCH_PROJECTION_PER_FEATURE,
+        features_num=features_num,
+        input_dim=input_dim,
+        proj_dim=feature_config.PROJECTION_DIM,
+        proj_layers=feature_config.PROJECTION_LAYERS,
+        patch_projection=feature_config.PATCH_PROJECTION,
+        patch_projection_per_feature=feature_config.PATCH_PROJECTION_PER_FEATURE,
         proj_last_layer_activation_type=config.MODEL.FRE.PROJECTOR_LAST_LAYER_ACTIVATION_TYPE,
         original_image_features_branch=config.MODEL.FRE.ORIGINAL_IMAGE_FEATURES_BRANCH,
         dropout=config.MODEL.SID_DROPOUT,
         disable_reconstruction_similarity=config.MODEL.FRE.DISABLE_RECONSTRUCTION_SIMILARITY
     )
-    cls_vector_dim: int = 6 * len(config.MODEL.VIT.INTERMEDIATE_LAYERS)
+    cls_vector_dim: int = 6 * features_num
     if (config.MODEL.FRE.ORIGINAL_IMAGE_FEATURES_BRANCH
             and config.MODEL.FRE.DISABLE_RECONSTRUCTION_SIMILARITY):
-        cls_vector_dim = config.MODEL.VIT.PROJECTION_DIM
+        cls_vector_dim = feature_config.PROJECTION_DIM
     elif config.MODEL.FRE.ORIGINAL_IMAGE_FEATURES_BRANCH:
-        cls_vector_dim += config.MODEL.VIT.PROJECTION_DIM
+        cls_vector_dim += feature_config.PROJECTION_DIM
 
     cls_head: Optional[ClassificationHead]
     if config.TRAIN.MODE == "contrastive":
@@ -1297,6 +1323,7 @@ def build_mf_vit(config) -> MFViT:
             cls_head,
             masking_radius=config.MODEL.FRE.MASKING_RADIUS,
             img_size=config.DATA.IMG_SIZE,
+            initialization_scope=initialization_scope,
             learnable_radius=config.MODEL.FRE.LEARNABLE_MASKING_RADIUS,
             mask_temperature=config.MODEL.FRE.MASK_TEMPERATURE
         )
