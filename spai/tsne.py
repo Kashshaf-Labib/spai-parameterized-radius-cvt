@@ -83,6 +83,7 @@ def visualize_tsne(
         [sca_embeddings[str(i)] for i in range(len(sca_embeddings))], dim=0
     ).squeeze(dim=1)
     sca_targets: torch.Tensor = torch.cat(sca_targets, dim=0).long()
+    srs_dim = model.mfvit.features_processor.reconstruction_similarity_dim
 
     for perplexity in [10 * i for i in range(2, 11)]:
         # Embed the spectral vectors for each patch of the image.
@@ -97,26 +98,32 @@ def visualize_tsne(
         plt.close()
 
         # Embed the values of spectral reconstruction similarity.
-        tsne_embed = tsnecuda.TSNE(perplexity=perplexity).fit_transform(embeddings[:, :72].numpy())
-        plt.figure(figsize=(5, 5))
-        plt.scatter(tsne_embed[:, 1], tsne_embed[:, 0], c=targets.numpy(),
-                    cmap='PiYG', marker='.')
-        plot_file: Path = (Path(config.OUTPUT) / "embeds_viz"
-                           / f"{data_name}_srs_p={perplexity}.png")
-        plot_file.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(plot_file)
-        plt.close()
+        if srs_dim > 0:
+            tsne_embed = tsnecuda.TSNE(perplexity=perplexity).fit_transform(
+                embeddings[:, :srs_dim].numpy()
+            )
+            plt.figure(figsize=(5, 5))
+            plt.scatter(tsne_embed[:, 1], tsne_embed[:, 0], c=targets.numpy(),
+                        cmap='PiYG', marker='.')
+            plot_file: Path = (Path(config.OUTPUT) / "embeds_viz"
+                               / f"{data_name}_srs_p={perplexity}.png")
+            plot_file.parent.mkdir(parents=True, exist_ok=True)
+            plt.savefig(plot_file)
+            plt.close()
 
         # Embed the spectral vectors for each patch of the image.
-        tsne_embed = tsnecuda.TSNE(perplexity=perplexity).fit_transform(embeddings[:, 72:].numpy())
-        plt.figure(figsize=(5, 5))
-        plt.scatter(tsne_embed[:, 1], tsne_embed[:, 0], c=targets.numpy(),
-                    cmap='PiYG', marker='.')
-        plot_file: Path = (Path(config.OUTPUT) / "embeds_viz"
-                           / f"{data_name}_scv_p={perplexity}.png")
-        plot_file.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(plot_file)
-        plt.close()
+        if srs_dim < embeddings.size(1):
+            tsne_embed = tsnecuda.TSNE(perplexity=perplexity).fit_transform(
+                embeddings[:, srs_dim:].numpy()
+            )
+            plt.figure(figsize=(5, 5))
+            plt.scatter(tsne_embed[:, 1], tsne_embed[:, 0], c=targets.numpy(),
+                        cmap='PiYG', marker='.')
+            plot_file: Path = (Path(config.OUTPUT) / "embeds_viz"
+                               / f"{data_name}_scv_p={perplexity}.png")
+            plot_file.parent.mkdir(parents=True, exist_ok=True)
+            plt.savefig(plot_file)
+            plt.close()
 
         # Embed image-level spectral vectors for each patch of the image.
         tsne_embed = tsnecuda.TSNE(perplexity=perplexity).fit_transform(sca_embeddings.numpy())

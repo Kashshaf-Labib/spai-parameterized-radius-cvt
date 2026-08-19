@@ -59,7 +59,7 @@ def compare_pytorch_onnx_models(
     print(f"PyTorch Overall Prediction: {to_numpy(pytorch_pred).item()}")
 
     # Test only the patch aggregator with a new random input.
-    aggr_input: torch.Tensor = torch.randn(1, 4, 1096)
+    aggr_input: torch.Tensor = torch.randn(1, 4, pytorch_model.cls_vector_dim)
 
     onnx_pred: torch.Tensor = predict_onnx_aggregator(ort_aggregator_session, aggr_input)
 

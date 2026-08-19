@@ -1,4 +1,5 @@
 import unittest
+import logging
 
 import torch
 from torch import nn
@@ -7,6 +8,7 @@ from spai.config import get_config
 from spai.models.cvt import build_cvt
 from spai.models.build import build_cls_model
 from spai.models.sid import MFViT, PatchBasedMFViT
+from spai.optimizer import build_optimizer, get_cvt_layer
 from spai.utils import extract_mfm_encoder_state_dict
 
 
@@ -117,3 +119,38 @@ class TestCvtBackbone(unittest.TestCase):
         self.assertIsInstance(model, PatchBasedMFViT)
         self.assertTrue(model.mfvit.learnable_radius)
         self.assertEqual(model.cls_vector_dim, 1084)
+
+        optimizer = build_optimizer(
+            config, model, logging.getLogger("test-cvt-optimizer"), is_pretrain=False
+        )
+        optimized_parameters = {
+            id(parameter)
+            for group in optimizer.param_groups
+            for parameter in group["params"]
+        }
+        self.assertTrue(all(
+            id(parameter) not in optimized_parameters
+            for parameter in model.get_vision_transformer().parameters()
+        ))
+        radius_groups = [
+            group for group in optimizer.param_groups
+            if group.get("group_name") == "masking_radius"
+        ]
+        self.assertEqual(len(radius_groups), 1)
+        self.assertEqual(radius_groups[0]["lr"], config.TRAIN.RADIUS_LR)
+
+    def test_cvt_layer_decay_mapping(self):
+        depths = [1, 2, 10]
+        num_layers = sum(depths) + 2
+
+        self.assertEqual(get_cvt_layer(
+            "mfvit.vit.encoder.encoder.stages.0.embedding.convolution_embeddings.projection.weight",
+            num_layers,
+            depths,
+        ), 0)
+        self.assertEqual(get_cvt_layer(
+            "mfvit.vit.encoder.encoder.stages.2.layers.9.attention.attention.query.weight",
+            num_layers,
+            depths,
+        ), 13)
+        self.assertEqual(get_cvt_layer("cls_head.head.0.weight", num_layers, depths), 14)

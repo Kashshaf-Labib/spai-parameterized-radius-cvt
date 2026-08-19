@@ -85,6 +85,10 @@ def build_finetune_optimizer(config, model, logger):
     elif config.MODEL.TYPE == 'vit':
         num_layers = config.MODEL.VIT.DEPTH
         get_layer_func = partial(get_vit_layer, num_layers=num_layers + 2)
+    elif config.MODEL.TYPE == 'cvt':
+        depths = list(config.MODEL.CVT.DEPTHS)
+        num_layers = sum(depths)
+        get_layer_func = partial(get_cvt_layer, num_layers=num_layers + 2, depths=depths)
     else:
         raise NotImplementedError
     
@@ -145,6 +149,27 @@ def get_swin_layer(name, num_layers, depths):
         return layer_id + 1
     else:
         return num_layers - 1
+
+
+def get_cvt_layer(name, num_layers, depths):
+    """Map nested CvT stage/block parameters onto a global layer index."""
+
+    stage_marker = "encoder.encoder.stages."
+    if stage_marker not in name:
+        return num_layers - 1
+
+    stage_path = name.split(stage_marker, maxsplit=1)[1]
+    path_parts = stage_path.split(".")
+    stage_index = int(path_parts[0])
+    layers_before_stage = sum(depths[:stage_index])
+
+    if len(path_parts) > 2 and path_parts[1] == "layers":
+        block_index = int(path_parts[2])
+        return layers_before_stage + block_index + 1
+
+    # Patch embeddings and the final-stage class token precede that stage's
+    # transformer blocks.
+    return layers_before_stage
 
 
 def get_finetune_param_groups(model, logger, lr, weight_decay, get_layer_func, scales, skip_list=(), skip_keywords=(), radius_lr=None):

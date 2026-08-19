@@ -612,7 +612,8 @@ class MFViT(nn.Module):
             def __init__(self):
                 super().__init__()
                 if (isinstance(outer_instance.vit, vision_transformer.VisionTransformer)
-                        or isinstance(outer_instance.vit, backbones.DINOv2Backbone)):
+                        or isinstance(outer_instance.vit, backbones.DINOv2Backbone)
+                        or isinstance(outer_instance.vit, cvt.CvtBackbone)):
                     # ImageNet normalization
                     self.backbone_norm = utils.ExportableImageNormalization(
                         mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD
@@ -811,6 +812,13 @@ class FrequencyRestorationEstimator(nn.Module):
             assert self.original_features_processor is not None, \
                 ("Frequency Reconstruction Similarity cannot be disabled without "
                  "Original Features Processor.")
+
+        self.reconstruction_similarity_dim = (
+            0 if self.disable_reconstruction_similarity else 6 * features_num
+        )
+        self.output_dim = self.reconstruction_similarity_dim
+        if self.original_features_processor is not None:
+            self.output_dim += proj_dim
 
     def forward(
         self,
@@ -1295,12 +1303,7 @@ def build_mf_vit(config) -> MFViT:
         dropout=config.MODEL.SID_DROPOUT,
         disable_reconstruction_similarity=config.MODEL.FRE.DISABLE_RECONSTRUCTION_SIMILARITY
     )
-    cls_vector_dim: int = 6 * features_num
-    if (config.MODEL.FRE.ORIGINAL_IMAGE_FEATURES_BRANCH
-            and config.MODEL.FRE.DISABLE_RECONSTRUCTION_SIMILARITY):
-        cls_vector_dim = feature_config.PROJECTION_DIM
-    elif config.MODEL.FRE.ORIGINAL_IMAGE_FEATURES_BRANCH:
-        cls_vector_dim += feature_config.PROJECTION_DIM
+    cls_vector_dim: int = fre.output_dim
 
     cls_head: Optional[ClassificationHead]
     if config.TRAIN.MODE == "contrastive":

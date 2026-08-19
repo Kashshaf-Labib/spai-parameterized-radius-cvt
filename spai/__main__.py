@@ -285,6 +285,18 @@ def train(
     model.cuda()
     logger.info(str(model))
 
+    # Establish the model's weights and trainability before constructing the
+    # optimizer. Frozen pretrained backbones must be excluded from optimizer
+    # groups, while a model without pretrained weights must include its backbone.
+    model_without_ddp = model
+    if config.MODEL.FINETUNE_FROM:
+        load_finetune_checkpoint(config, model_without_ddp, logger)
+    elif config.PRETRAINED:
+        load_pretrained(config, model_without_ddp.get_vision_transformer(), logger)
+    else:
+        model_without_ddp.unfreeze_backbone()
+        logger.info("No pretrained model. Backbone parameters are trainable.")
+
     optimizer = build_optimizer(config, model, logger, is_pretrain=False)
     if config.AMP_OPT_LEVEL != "O0":
         model, optimizer = amp.initialize(model, optimizer, opt_level=config.AMP_OPT_LEVEL)
@@ -299,14 +311,6 @@ def train(
     lr_scheduler = build_scheduler(config, optimizer, len(data_loader_train))
     criterion: nn.Module = losses.build_loss(config)
     logger.info(f"Loss: \n{criterion}")
-
-    if config.MODEL.FINETUNE_FROM:
-        load_finetune_checkpoint(config, model_without_ddp, logger)
-    elif config.PRETRAINED:
-        load_pretrained(config, model_without_ddp.get_vision_transformer(), logger)
-    else:
-        model_without_ddp.unfreeze_backbone()
-        logger.info(f"No pretrained model. Backbone parameters are trainable.")
 
     if config.MODEL.FRE.LEARNABLE_MASKING_RADIUS:
         logger.info(f"Learnable masking radius enabled | "
