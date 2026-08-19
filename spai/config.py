@@ -191,6 +191,42 @@ _C.MODEL.VIT.PATCH_PROJECTION_PER_FEATURE = False
 # Supported patch pooling: "mean", "l2_max"
 _C.MODEL.VIT.PATCH_POOLING = "mean"
 
+# Convolutional Vision Transformer parameters. These defaults describe the
+# CvT-13 encoder used by the phase-one MFM checkpoint.
+_C.MODEL.CVT = CN()
+_C.MODEL.CVT.NAME = "cvt_13"
+_C.MODEL.CVT.IN_CHANS = 3
+_C.MODEL.CVT.PATCH_SIZES = [7, 3, 3]
+_C.MODEL.CVT.PATCH_STRIDES = [4, 2, 2]
+_C.MODEL.CVT.PATCH_PADDINGS = [2, 1, 1]
+_C.MODEL.CVT.EMBED_DIMS = [64, 192, 384]
+_C.MODEL.CVT.DEPTHS = [1, 2, 10]
+_C.MODEL.CVT.NUM_HEADS = [1, 3, 6]
+_C.MODEL.CVT.MLP_RATIOS = [4.0, 4.0, 4.0]
+_C.MODEL.CVT.QKV_BIAS = [True, True, True]
+_C.MODEL.CVT.QKV_PROJECTION_METHOD = ["dw_bn", "dw_bn", "dw_bn"]
+_C.MODEL.CVT.KERNEL_QKV = [3, 3, 3]
+_C.MODEL.CVT.PADDING_Q = [1, 1, 1]
+_C.MODEL.CVT.PADDING_KV = [1, 1, 1]
+_C.MODEL.CVT.STRIDE_Q = [1, 1, 1]
+_C.MODEL.CVT.STRIDE_KV = [2, 2, 2]
+_C.MODEL.CVT.CLS_TOKEN = [False, False, True]
+_C.MODEL.CVT.DROP_RATE = [0.0, 0.0, 0.0]
+_C.MODEL.CVT.ATTENTION_DROP_RATE = [0.0, 0.0, 0.0]
+_C.MODEL.CVT.DROP_PATH_RATE = [0.0, 0.0, 0.0]
+_C.MODEL.CVT.FEATURE_STAGE = 2
+_C.MODEL.CVT.FEATURE_LAYERS = list(range(10))
+_C.MODEL.CVT.ENCODER_STRIDE = 16
+_C.MODEL.CVT.DECODE_STAGE = 3
+
+# SPAI feature processing defaults for the homogeneous final CvT stage.
+_C.MODEL.CVT.FEATURES_PROCESSOR = "rine"
+_C.MODEL.CVT.PROJECTION_DIM = 1024
+_C.MODEL.CVT.PROJECTION_LAYERS = 2
+_C.MODEL.CVT.PATCH_PROJECTION = False
+_C.MODEL.CVT.PATCH_PROJECTION_PER_FEATURE = False
+_C.MODEL.CVT.PATCH_POOLING = "mean"
+
 # Frequency Restoration Estimator parameters
 _C.MODEL.FRE = CN()
 _C.MODEL.FRE.MASKING_RADIUS = 16
