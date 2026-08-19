@@ -1,12 +1,14 @@
 import logging
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import torch
 from torch import nn
 
 from spai.config import get_config
-from spai.utils import load_checkpoint
+from spai.utils import auto_resume_helper, load_checkpoint, save_checkpoint
 
 
 class TestPhaseTwoResume(unittest.TestCase):
@@ -107,6 +109,89 @@ class TestPhaseTwoResume(unittest.TestCase):
         self.assertEqual(
             config.MODEL.RESUME, "attached/ckpt_epoch_4.pth"
         )
+
+
+class TestCheckpointPersistence(unittest.TestCase):
+    def setUp(self) -> None:
+        self.config = get_config({"cfg": "configs/spai_cvt.yaml"})
+        self.config.defrost()
+        self.config.AMP_OPT_LEVEL = "O0"
+        self.config.freeze()
+        self.logger = logging.getLogger("test-checkpoint-persistence")
+        self.model, self.optimizer, self.scheduler = (
+            TestPhaseTwoResume._make_training_state()
+        )
+
+    def _set_output(self, output: str) -> None:
+        self.config.defrost()
+        self.config.OUTPUT = output
+        self.config.freeze()
+
+    def test_checkpoint_is_published_atomically(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            self._set_output(temp_dir)
+            save_checkpoint(
+                self.config,
+                7,
+                self.model,
+                0.5,
+                self.optimizer,
+                self.scheduler,
+                self.logger,
+            )
+
+            checkpoint_path = Path(temp_dir) / "ckpt_epoch_7.pth"
+            self.assertTrue(checkpoint_path.is_file())
+            self.assertFalse(Path(f"{checkpoint_path}.tmp").exists())
+            checkpoint = torch.load(
+                checkpoint_path, map_location="cpu", weights_only=False
+            )
+            self.assertEqual(checkpoint["epoch"], 7)
+            self.assertEqual(checkpoint["max_accuracy"], 0.5)
+
+    def test_failed_save_preserves_previous_checkpoint_and_removes_temp(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            self._set_output(temp_dir)
+            checkpoint_path = Path(temp_dir) / "ckpt_epoch_2.pth"
+            checkpoint_path.write_bytes(b"previous-complete-checkpoint")
+
+            def fail_after_partial_write(_state, temporary_path) -> None:
+                Path(temporary_path).write_bytes(b"partial")
+                raise RuntimeError("simulated interrupted write")
+
+            with patch(
+                "spai.utils.torch.save", side_effect=fail_after_partial_write
+            ):
+                with self.assertRaisesRegex(RuntimeError, "interrupted write"):
+                    save_checkpoint(
+                        self.config,
+                        2,
+                        self.model,
+                        0.5,
+                        self.optimizer,
+                        self.scheduler,
+                        self.logger,
+                    )
+
+            self.assertEqual(
+                checkpoint_path.read_bytes(), b"previous-complete-checkpoint"
+            )
+            self.assertFalse(Path(f"{checkpoint_path}.tmp").exists())
+
+    def test_auto_resume_selects_highest_valid_epoch(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir)
+            for filename in (
+                "ckpt_epoch_2.pth",
+                "ckpt_epoch_10.pth",
+                "ckpt_epoch_invalid.pth",
+                "ckpt_epoch_11.pth.tmp",
+                "best.pth",
+            ):
+                (output_path / filename).write_bytes(b"test")
+
+            selected = auto_resume_helper(output_path, self.logger)
+            self.assertEqual(selected, str(output_path / "ckpt_epoch_10.pth"))
 
 
 if __name__ == "__main__":

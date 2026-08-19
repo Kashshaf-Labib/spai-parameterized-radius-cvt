@@ -191,7 +191,9 @@ python -m spai train \
 The checkpoint restores model, optimizer, scheduler, and the next epoch. Here
 `TRAIN.EPOCHS` is the total target (35), not 35 additional epochs. When no explicit
 checkpoint is supplied and `TRAIN.AUTO_RESUME` is enabled, the trainer resumes from
-the newest checkpoint already present in the exact output/model/tag directory.
+the highest numbered checkpoint already present in the exact output/model/tag directory.
+Checkpoint files are first written to a temporary file and atomically moved into place,
+so an interrupted write is never selected as a completed checkpoint.
 
 ## :dna: Learnable Masking Radius (fork extension)
 

@@ -94,9 +94,14 @@ def save_checkpoint(config, epoch, model, max_accuracy, optimizer, lr_scheduler,
     if config.AMP_OPT_LEVEL != "O0":
         save_state['amp'] = amp.state_dict()
 
-    save_path = os.path.join(config.OUTPUT, f'ckpt_epoch_{epoch}.pth')
+    save_path = pathlib.Path(config.OUTPUT) / f'ckpt_epoch_{epoch}.pth'
+    temporary_save_path = save_path.with_suffix(f"{save_path.suffix}.tmp")
     logger.info(f"{save_path} saving......")
-    torch.save(save_state, save_path)
+    try:
+        torch.save(save_state, temporary_save_path)
+        os.replace(temporary_save_path, save_path)
+    finally:
+        temporary_save_path.unlink(missing_ok=True)
     logger.info(f"{save_path} saved !!!")
 
 
@@ -133,17 +138,26 @@ def get_grad_norm(parameters, norm_type=2):
     return total_norm
 
 
-def auto_resume_helper(output_dir, logger):
-    checkpoints = os.listdir(output_dir)
-    checkpoints = [ckpt for ckpt in checkpoints if ckpt.endswith('pth')]
-    logger.info(f"All checkpoints founded in {output_dir}: {checkpoints}")
-    if len(checkpoints) > 0:
-        latest_checkpoint = max([os.path.join(output_dir, d) for d in checkpoints], key=os.path.getmtime)
-        logger.info(f"The latest checkpoint founded: {latest_checkpoint}")
-        resume_file = latest_checkpoint
-    else:
-        resume_file = None
-    return resume_file
+def auto_resume_helper(output_dir, logger) -> Optional[str]:
+    output_path = pathlib.Path(output_dir)
+    epoch_pattern = re.compile(r"ckpt_epoch_(\d+)\.pth")
+    epoch_checkpoints: list[tuple[int, pathlib.Path]] = []
+    if output_path.is_dir():
+        for checkpoint_path in output_path.iterdir():
+            match = epoch_pattern.fullmatch(checkpoint_path.name)
+            if match is not None and checkpoint_path.is_file():
+                epoch_checkpoints.append((int(match.group(1)), checkpoint_path))
+
+    logger.info(
+        f"Checkpoints found in {output_path}: "
+        f"{[path.name for _, path in sorted(epoch_checkpoints)]}"
+    )
+    if not epoch_checkpoints:
+        return None
+
+    latest_checkpoint = max(epoch_checkpoints, key=lambda item: item[0])[1]
+    logger.info(f"Latest checkpoint by epoch: {latest_checkpoint}")
+    return str(latest_checkpoint)
 
 
 def reduce_tensor(tensor):
