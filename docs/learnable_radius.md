@@ -43,6 +43,9 @@ data instead.
   **whole** model from a checkpoint (e.g. the released `spai.pth`) with `strict=False`, so
   newly introduced components keep their initialization and obsolete ones are ignored. The
   learned radius is logged to the console, TensorBoard, and Neptune each epoch.
+- **`spai/models/cvt.py`** — adapts the phase-one CvT-13 encoder to SPAI by exposing the
+  ten homogeneous final-stage blocks as `B x 10 x 196 x 384` features. CvT checkpoint
+  loading is strict, and its frozen BatchNorm layers remain in evaluation mode.
 - **Neptune is now optional.** Set `DISABLE_NEPTUNE=1` (or simply don't install/configure
   Neptune) and training falls back to a no-op logger; TensorBoard logging is unaffected.
 
@@ -51,29 +54,30 @@ and the setting in `configs/spai.yaml`) the behavior is bit-identical to upstrea
 
 ## Usage
 
-Fine-tune from the released checkpoint with the learnable radius:
+Initialize the learnable-radius CvT model from the phase-one MFM checkpoint:
 
 ```bash
 python -m spai train \
-  --cfg configs/spai_learnable_radius.yaml \
+  --cfg configs/spai_cvt_learnable_radius.yaml \
   --batch-size 4 \
   --data-path datasets/medical.csv \
   --csv-root-dir . \
-  --finetune-from weights/spai.pth \
-  --output output/learnable_radius \
+  --pretrained weights/cvt_mfm_pretrain.pth \
+  --output output/cvt_learnable_radius \
   --tag exp \
   --amp-opt-level O0 \
   --opt TRAIN.RADIUS_LR 0.01
 ```
 
-The paired baseline (fixed radius) uses the unmodified `configs/spai.yaml` with the same
-`--finetune-from`. Running both on the identical split is the ablation for the thesis.
+The paired baseline uses `configs/spai_cvt.yaml` with the same `--pretrained` checkpoint.
+Running both on the identical split is the radius ablation. The original ViT workflow is
+still available through `configs/spai.yaml` and `configs/spai_learnable_radius.yaml`.
 
 ## A note on GPU memory
 
 With the fixed radius, the frozen backbone runs under `torch.no_grad()`, so no activations
 are stored. The learnable radius **must** retain the autograd graph of the low- and
-high-frequency streams through all 12 ViT blocks (that is how the gradient reaches `r`),
+high-frequency streams through all 10 selected CvT blocks (that is how the gradient reaches `r`),
 so training uses meaningfully more memory than the stock frozen path. On a T4 16 GB this is
 comfortable at `--batch-size 4` (the smoke-test setting), but if you raise the batch size
 and hit OOM, lower `--batch-size` and compensate with `--accumulation-steps`, and/or reduce
@@ -81,20 +85,21 @@ and hit OOM, lower `--batch-size` and compensate with `--accumulation-steps`, an
 (gradient checkpointing) is **not** wired into this backbone, so it is not an available
 mitigation. The original-image stream is kept under `no_grad` precisely to limit this cost.
 
-## Fine-tune vs. retrain
+## Phase one vs. phase two
 
-**Fine-tuning from `spai.pth` is the correct approach** — the backbone is frozen in all
-configurations, so there is nothing to re-learn in it. The released checkpoint already
-contains the best-trained SRS projectors, SCV, SCA, and classifier head; the learnable
-radius sits *in front of* the frozen backbone and initializes to 16, so loading `spai.pth`
-does not invalidate any pretrained weight. Retraining the 180k-image natural-image stage
-would only re-derive weights the checkpoint already holds.
+`cvt_mfm_pretrain.pth` contains only the **phase-one MFM encoder**. It is intentionally
+loaded with `--pretrained`; the CvT backbone is frozen, while SRS projectors, SCV, SCA, and
+the classifier start from random initialization. A meaningful detector should therefore
+train these phase-two components on the complete phase-two dataset before a small-domain
+adaptation. The tiny medical notebook run is useful for integration checks, not as a
+paper-scale replacement. Once a complete CvT-SPAI phase-two checkpoint exists, it can be
+used with `--finetune-from` for subsequent domain fine-tuning.
 
 ## Kaggle
 
 A ready-to-run smoke test is provided at
-[`kaggle/learnable_radius_smoke_test.ipynb`](../kaggle/learnable_radius_smoke_test.ipynb).
-It clones this repo, downloads `spai.pth` via `gdown`, builds a CSV from
+[`spai-parameterized-radius-fine-tuning.ipynb`](../spai-parameterized-radius-fine-tuning.ipynb).
+It clones this repo, downloads the phase-one CvT checkpoint via `gdown`, builds a CSV from
 `medical_spai_dataset/`, fine-tunes both the fixed and learnable variants, and reports the
 learned radius trajectory. Use the GPU accelerator (T4 x2; only GPU 0 is used) and install
 `requirements-kaggle.txt` (APEX is not required — train with `--amp-opt-level O0`).

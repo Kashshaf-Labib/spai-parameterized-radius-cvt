@@ -93,6 +93,7 @@ class TestCSVDataset(unittest.TestCase):
                                         item[0].shape,
                                         (views, 3, image_size[0], image_size[1])
                                     )
+                            dataset.close()
 
     def test_load_dataset_with_views_generator(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -155,6 +156,7 @@ class TestCSVDataset(unittest.TestCase):
                                         item[0].shape,
                                         (10, 3, view_size, view_size)
                                     )
+                            dataset.close()
 
 
 class TestCSVDatasetTriplet(unittest.TestCase):
@@ -201,6 +203,7 @@ class TestCSVDatasetTriplet(unittest.TestCase):
                         self.assertEqual(item[0].shape, (3, image_size[0], image_size[1]))
                         self.assertEqual(item[1].shape, (3, image_size[0], image_size[1]))
                         self.assertEqual(item[2].shape, (3, image_size[0], image_size[1]))
+                    dataset.close()
 
 
 def generate_random_dataset(

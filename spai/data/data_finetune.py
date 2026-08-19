@@ -143,6 +143,17 @@ class CSVDataset(torch.utils.data.Dataset):
     def get_classes_num(self) -> int:
         return self.num_classes
 
+    def close(self) -> None:
+        """Close a lazily opened data reader (notably its LMDB environment)."""
+
+        data_reader = getattr(self, "data_reader", None)
+        if data_reader is not None:
+            data_reader.close()
+            self.data_reader = None
+
+    def __del__(self) -> None:
+        self.close()
+
     def get_dataset_root_path(self) -> pathlib.Path:
         if self.lmdb_storage is not None:
             return self.lmdb_storage
@@ -275,6 +286,17 @@ class CSVDatasetTriplet(torch.utils.data.Dataset):
 
     def get_classes_num(self) -> int:
         return self.num_classes
+
+    def close(self) -> None:
+        """Close a lazily opened data reader (notably its LMDB environment)."""
+
+        data_reader = getattr(self, "data_reader", None)
+        if data_reader is not None:
+            data_reader.close()
+            self.data_reader = None
+
+    def __del__(self) -> None:
+        self.close()
 
     def get_dataset_root_path(self) -> pathlib.Path:
         if self.lmdb_storage is not None:

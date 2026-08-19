@@ -29,6 +29,11 @@ from spai.data import filestorage
 
 class DataReader:
 
+    def close(self) -> None:
+        """Release resources owned by the reader, if any."""
+
+        return None
+
     def read_csv_file(self, path: str) -> list[dict[str, Any]]:
         raise NotImplementedError
 
@@ -121,6 +126,9 @@ class LMDBFileStorageReader(DataReader):
     def __init__(self, storage: filestorage.LMDBFileStorage):
         super().__init__()
         self.storage: filestorage.LMDBFileStorage = storage
+
+    def close(self) -> None:
+        self.storage.close()
 
     def read_csv_file(self, path: str) -> list[dict[str, Any]]:
         stream = self.storage.open_file(path)

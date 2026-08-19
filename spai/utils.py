@@ -191,9 +191,19 @@ def load_pretrained(
 
     # CvT has no safe interpolation/remapping path: a mismatch means the
     # checkpoint and configured architecture are incompatible and must fail.
-    msg = model.load_state_dict(
-        checkpoint_model, strict=config.MODEL.TYPE == "cvt"
-    )
+    try:
+        msg = model.load_state_dict(
+            checkpoint_model, strict=config.MODEL.TYPE == "cvt"
+        )
+    except RuntimeError as error:
+        if config.MODEL.TYPE == "cvt":
+            raise RuntimeError(
+                f"Checkpoint '{checkpoint_path}' is not compatible with the configured "
+                "CvT-SPAI architecture. Use the phase-one CvT MFM checkpoint with "
+                "--pretrained, or a complete phase-two checkpoint produced by the same "
+                "CvT configuration."
+            ) from error
+        raise
     if verbose:
         logger.info(msg)
     

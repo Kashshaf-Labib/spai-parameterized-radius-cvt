@@ -55,6 +55,12 @@ weights are **frozen**; only the pieces below are trained.
 - Depth `N = 12` transformer blocks, embedding dim `d = 768`, patch size `16`.
 - An image patch of `224×224` becomes `L = (224/16)² = 196` tokens.
 
+**CvT fork adaptation.** The equations below describe the original paper's ViT path. The
+CvT configuration in this fork uses all ten blocks of CvT-13's homogeneous final stage:
+`N = 10`, `d = 384`, and `L = 196`. Consequently SRS has `6N = 60` values and the
+projected spectral vector has `1024 + 60 = 1084` values. The masking, SRS, SCV, SCA, and
+classification equations are otherwise unchanged.
+
 ### 2.2 Frequency masking — where `r` lives
 
 Given a patch `x ∈ ℝ^{H×W}`, take the 2D DFT and center it:
@@ -305,10 +311,15 @@ Added in `config.py` (all backward-compatible; defaults reproduce upstream behav
 | `TRAIN.RADIUS_LR` | `0.01` | Learning rate for the `r` parameter group. |
 | `MODEL.FINETUNE_FROM` | `''` | Full checkpoint (e.g. `spai.pth`) to initialize the whole model for fine-tuning. |
 
-The ready-to-use config is `configs/spai_learnable_radius.yaml` (identical to
-`configs/spai.yaml` except the three FRE/radius keys).
+The CvT configs are `configs/spai_cvt.yaml` and
+`configs/spai_cvt_learnable_radius.yaml`. The original ViT counterparts remain available
+as `configs/spai.yaml` and `configs/spai_learnable_radius.yaml`.
 
 ### 3.5 Fine-tuning from `spai.pth` (checkpoint compatibility)
+
+This subsection applies only to the legacy **ViT** configuration. The released
+`spai.pth` cannot initialize CvT-SPAI because its backbone and all dimension-dependent
+phase-two layers have incompatible shapes.
 
 `--finetune-from weights/spai.pth` loads the **entire** released model with
 `strict=False` (`spai/utils.py: load_finetune_checkpoint`). Because the learnable model:
@@ -338,13 +349,15 @@ torch.load(ckpt, map_location="cpu")["model"]["mfvit.soft_frequency_mask.radius"
 
 ## 4. How fine-tuning through the variable `r` actually works
 
-Step by step, for one training run with `configs/spai_learnable_radius.yaml` and
-`--finetune-from weights/spai.pth`:
+Step by step, for one CvT training run with
+`configs/spai_cvt_learnable_radius.yaml` and
+`--pretrained weights/cvt_mfm_pretrain.pth`:
 
 1. **Build model.** `MODEL.FRE.LEARNABLE_MASKING_RADIUS=True` ⇒ `MFViT`/`PatchBasedMFViT`
    create a `SoftCircularMask(img_size=224, initial_radius=16, temperature=1.0)` and set the
-   ViT backbone to `requires_grad=False`.
-2. **Load weights.** `spai.pth` is loaded (`strict=False`); `r` stays at 16.
+   CvT backbone to `requires_grad=False` and keeps its BatchNorm layers in eval mode.
+2. **Load weights.** The 455 phase-one CvT encoder entries are loaded strictly; the
+   phase-two projectors, SCV, SCA, classifier, and `r` retain their initialization.
 3. **Build optimizer.** `r` → its own group at `RADIUS_LR=0.01`; SRS/SCV/SCA/classifier →
    layer-decayed AdamW at `BASE_LR=5e-4`; backbone → excluded (frozen).
 4. **Each training step** (`train_one_epoch`), for each of the 4 augmented views:
@@ -353,13 +366,13 @@ Step by step, for one training run with `configs/spai_learnable_radius.yaml` and
    - Run the frozen `G` on `x`, `x_l`, `x_h` (low/high keep the graph).
    - Compute SRS → SCV → spectral vector → SCA → classifier → `ŷ`.
    - `L = BCE(ŷ, y)`; `L.backward()` sends gradients to the trainable heads **and to `r`**
-     (through the IFFT and the frozen ViT of the low/high streams).
+   (through the IFFT and the frozen CvT of the low/high streams).
    - `optimizer.step()` nudges `r` by its own learning rate; the heads by theirs.
 5. **Per epoch:** validate, checkpoint (best val loss or `--save-all`), and log the new `r`.
 6. **Over the run:** `r` migrates from 16 to whatever value maximizes the discriminative
    power of the low-vs-high comparison for the target (medical) domain.
 
-The paired **baseline** run is identical but uses `configs/spai.yaml`
+The paired **baseline** run is identical but uses `configs/spai_cvt.yaml`
 (`LEARNABLE_MASKING_RADIUS=False`), so `r` stays pinned at 16. Comparing the two on the same
 data isolates the effect of freeing `r` — this is the ablation for the thesis.
 
@@ -376,7 +389,7 @@ data isolates the effect of freeing `r` — this is the ablation for the thesis.
 | Gradient to `r` | n/a | flows through IFFT + frozen ViT (low/high streams) |
 | Optimizer | one AdamW scheme | + dedicated `r` group at `RADIUS_LR`, no decay |
 | New config keys | — | `LEARNABLE_MASKING_RADIUS`, `MASK_TEMPERATURE`, `RADIUS_LR`, `FINETUNE_FROM` |
-| Init for fine-tuning | `--pretrained` (backbone only) | `--finetune-from` (full model, `strict=False`) |
+| Init for training | `--pretrained` (phase-one backbone) | `--pretrained` for CvT phase one; `--finetune-from` only for a matching full phase-two model |
 | Default behavior | — | **identical to upstream** when the flag is `False` |
 | Downstream (SRS/SCV/SCA/head) | unchanged | unchanged |
 
@@ -389,14 +402,14 @@ data isolates the effect of freeing `r` — this is the ablation for the thesis.
 | `r` | masking radius (learnable) | init 16 |
 | `τ` | sigmoid temperature (`MASK_TEMPERATURE`) | 1.0 |
 | `d(u,v)` | distance of bin `(u,v)` from spectrum center | fixed |
-| `N` | ViT transformer blocks | 12 |
-| `d` | ViT embedding dim | 768 |
+| `N` | selected backbone blocks | ViT: 12; CvT: 10 |
+| `d` | backbone embedding dim | ViT: 768; CvT: 384 |
 | `L` | tokens per 224×224 patch | 196 |
 | `D` | projection dim (`PROJECTION_DIM`) | 1024 |
 | `D_h` | SCA hidden dim (`ATTN_EMBED_DIM`) | 1536 |
 | `K_train` | augmented views used as patches in training | 4 |
-| `z^λ` | SRS feature vector | `ℝ^{6N}` = `ℝ^{72}` |
-| `z^S` | spectral vector `[z^C; z^λ]` | `ℝ^{D+6N}` = `ℝ^{1096}` |
+| `z^λ` | SRS feature vector | ViT: `ℝ^{72}`; CvT: `ℝ^{60}` |
+| `z^S` | spectral vector `[z^C; z^λ]` | ViT: `ℝ^{1096}`; CvT: `ℝ^{1084}` |
 | `BASE_LR` | LR for heads | 5e-4 |
 | `RADIUS_LR` | LR for `r` | 0.01 |
 | `EPOCHS` / `WARMUP_EPOCHS` | schedule | 35 / 5 (full) |
@@ -424,7 +437,7 @@ L_cls  = BCE(ŷ, y)                                  # training objective
 | `spai/optimizer.py` | Dedicated `r` param group at `RADIUS_LR`. |
 | `spai/utils.py` | `load_finetune_checkpoint` (full model, `strict=False`). |
 | `spai/__main__.py` | `--finetune-from`; per-epoch/-iteration radius logging; optional Neptune. |
-| `configs/spai_learnable_radius.yaml` | Ready-to-run learnable-radius config. |
+| `configs/spai_cvt_learnable_radius.yaml` | Ready-to-run CvT learnable-radius config. |
 | `tests/models/test_filters.py`, `tests/models/test_sid.py` | Unit tests for the mask and gradient flow. |
 | `docs/learnable_radius.md` | Short usage/how-to (companion to this file). |
 
@@ -436,18 +449,18 @@ Learnable radius (ours):
 
 ```bash
 python -m spai train \
-  --cfg configs/spai_learnable_radius.yaml \
+  --cfg configs/spai_cvt_learnable_radius.yaml \
   --batch-size 4 \
   --data-path datasets/medical.csv \
   --csv-root-dir . \
-  --finetune-from weights/spai.pth \
-  --output output/learnable_radius \
+  --pretrained weights/cvt_mfm_pretrain.pth \
+  --output output/cvt_learnable_radius \
   --tag exp \
   --amp-opt-level O0 \
   --opt TRAIN.RADIUS_LR 0.01
 ```
 
-Fixed-radius baseline (same command, `configs/spai.yaml`). Run both on the same split; the
+Fixed-radius baseline (same command, `configs/spai_cvt.yaml`). Run both on the same split; the
 difference is the ablation. Watch the `masking_radius` in the logs drift off 16.
 
 ---

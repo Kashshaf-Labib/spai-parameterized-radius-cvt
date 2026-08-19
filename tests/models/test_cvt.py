@@ -1,5 +1,7 @@
 import unittest
 import logging
+from pathlib import Path
+from unittest.mock import patch
 
 import torch
 from torch import nn
@@ -9,7 +11,7 @@ from spai.models.cvt import build_cvt
 from spai.models.build import build_cls_model
 from spai.models.sid import MFViT, PatchBasedMFViT
 from spai.optimizer import build_optimizer, get_cvt_layer
-from spai.utils import extract_mfm_encoder_state_dict
+from spai.utils import extract_mfm_encoder_state_dict, load_pretrained
 
 
 class _FirstFeature(nn.Module):
@@ -107,6 +109,32 @@ class TestCvtBackbone(unittest.TestCase):
                 features, features, features
             )
         self.assertEqual(spectral_vector.shape, (1, 1084))
+
+        phase_two_checkpoint = {"model": model.state_dict(), "epoch": 7}
+        with patch("spai.utils.torch.load", return_value=phase_two_checkpoint):
+            epoch = load_pretrained(
+                config,
+                model,
+                logging.getLogger("test-cvt-phase-two-load"),
+                checkpoint_path=Path("phase_two_cvt.pth"),
+                verbose=False,
+            )
+        self.assertEqual(epoch, 7)
+
+        incompatible_state = dict(model.state_dict())
+        incompatible_state.pop(next(iter(incompatible_state)))
+        with patch(
+            "spai.utils.torch.load",
+            return_value={"model": incompatible_state, "epoch": 7},
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not compatible"):
+                load_pretrained(
+                    config,
+                    model,
+                    logging.getLogger("test-cvt-incompatible-load"),
+                    checkpoint_path=Path("incompatible_cvt.pth"),
+                    verbose=False,
+                )
 
     def test_cvt_learnable_radius_config_inherits_cvt_settings(self):
         config = get_config({"cfg": "configs/spai_cvt_learnable_radius.yaml"})
