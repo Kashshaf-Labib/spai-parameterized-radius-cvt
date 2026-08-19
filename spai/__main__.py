@@ -53,9 +53,11 @@ from spai.logger import create_logger
 from spai.utils import (
     load_pretrained,
     load_finetune_checkpoint,
+    load_checkpoint,
     save_checkpoint,
     get_grad_norm,
     find_pretrained_checkpoints,
+    auto_resume_helper,
     inf_nan_to_num
 )
 from spai.models import losses
@@ -141,8 +143,9 @@ def cli() -> None:
                    "initialize the whole model for fine-tuning. Loaded with strict=False, "
                    "so newly introduced components (e.g. the learnable masking radius) "
                    "keep their initialization.")
-@click.option("--resume", is_flag=True,
-              help="resume from checkpoint")
+@click.option("--resume",
+              type=click.Path(exists=True, dir_okay=False, path_type=Path),
+              help="Resume phase-two training from a full training checkpoint.")
 @click.option("--accumulation-steps", type=int, default=1,
               help="Gradient accumulation steps.")
 @click.option("--use-checkpoint", is_flag=True,
@@ -189,7 +192,7 @@ def train(
     lmdb_path: Optional[Path],
     pretrained: Optional[Path],
     finetune_from: Optional[Path],
-    resume: bool,
+    resume: Optional[Path],
     accumulation_steps: int,
     use_checkpoint: bool,
     amp_opt_level: str,
@@ -215,7 +218,7 @@ def train(
         "lmdb_path": str(lmdb_path) if lmdb_path is not None else None,
         "pretrained": str(pretrained) if pretrained is not None else None,
         "finetune_from": str(finetune_from) if finetune_from is not None else None,
-        "resume": resume,
+        "resume": str(resume) if resume is not None else None,
         "accumulation_steps": accumulation_steps,
         "use_checkpoint": use_checkpoint,
         "amp_opt_level": amp_opt_level,
@@ -262,6 +265,16 @@ def train(
     global logger
     logger = create_logger(output_dir=config.OUTPUT, dist_rank=0, name=f"{config.MODEL.NAME}")
 
+    # An explicit checkpoint always wins. Otherwise, reuse the newest checkpoint
+    # already present in this exact output/model/tag directory when auto-resume is enabled.
+    if not config.MODEL.RESUME and config.TRAIN.AUTO_RESUME:
+        resume_file = auto_resume_helper(config.OUTPUT, logger)
+        if resume_file is not None:
+            config.defrost()
+            config.MODEL.RESUME = resume_file
+            config.freeze()
+            logger.info(f"Auto-resuming from {resume_file}")
+
     # Export and display current config.
     path = os.path.join(config.OUTPUT, "config.json")
     with open(path, "w") as f:
@@ -289,7 +302,11 @@ def train(
     # optimizer. Frozen pretrained backbones must be excluded from optimizer
     # groups, while a model without pretrained weights must include its backbone.
     model_without_ddp = model
-    if config.MODEL.FINETUNE_FROM:
+    if config.MODEL.RESUME:
+        logger.info(
+            "Resume checkpoint selected; skipping phase-one/full-model initialization."
+        )
+    elif config.MODEL.FINETUNE_FROM:
         load_finetune_checkpoint(config, model_without_ddp, logger)
     elif config.PRETRAINED:
         load_pretrained(config, model_without_ddp.get_vision_transformer(), logger)
@@ -309,6 +326,8 @@ def train(
         logger.info(f"number of GFLOPs: {flops / 1e9}")
 
     lr_scheduler = build_scheduler(config, optimizer, len(data_loader_train))
+    if config.MODEL.RESUME:
+        load_checkpoint(config, model_without_ddp, optimizer, lr_scheduler, logger)
     criterion: nn.Module = losses.build_loss(config)
     logger.info(f"Loss: \n{criterion}")
 

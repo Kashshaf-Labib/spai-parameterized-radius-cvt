@@ -42,11 +42,32 @@ def load_checkpoint(config, model, optimizer, lr_scheduler, logger):
         checkpoint = torch.hub.load_state_dict_from_url(
             config.MODEL.RESUME, map_location='cpu', check_hash=True)
     else:
-        checkpoint = torch.load(config.MODEL.RESUME, map_location='cpu')
-    msg = model.load_state_dict(checkpoint['model'], strict=False)
+        checkpoint = torch.load(
+            config.MODEL.RESUME, map_location='cpu', weights_only=False
+        )
+    if not config.EVAL_MODE:
+        required_training_keys = {"model", "optimizer", "lr_scheduler", "epoch"}
+        missing_keys = sorted(required_training_keys.difference(checkpoint))
+        if missing_keys:
+            raise RuntimeError(
+                f"Resume checkpoint '{config.MODEL.RESUME}' is missing required training "
+                f"state: {', '.join(missing_keys)}"
+            )
+    try:
+        msg = model.load_state_dict(
+            checkpoint['model'], strict=config.MODEL.TYPE == "cvt"
+        )
+    except RuntimeError as error:
+        if config.MODEL.TYPE == "cvt":
+            raise RuntimeError(
+                f"Resume checkpoint '{config.MODEL.RESUME}' is not compatible with "
+                "the configured CvT-SPAI architecture. Resume with the same fixed/learnable "
+                "radius configuration that produced the checkpoint."
+            ) from error
+        raise
     logger.info(msg)
     max_accuracy = 0.0
-    if not config.EVAL_MODE and 'optimizer' in checkpoint and 'lr_scheduler' in checkpoint and 'epoch' in checkpoint:
+    if not config.EVAL_MODE:
         optimizer.load_state_dict(checkpoint['optimizer'])
         lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
         config.defrost()

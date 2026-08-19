@@ -173,6 +173,26 @@ features of shape `B x 10 x 196 x 384` for 224-pixel inputs. The resulting SPAI
 spectral vector has 1,084 elements. Use `--finetune-from` only when initializing
 from an already trained, complete phase-two SPAI checkpoint.
 
+To continue an interrupted phase-two run, pass its full training checkpoint with
+`--resume` and keep the same CvT/radius configuration:
+
+```bash
+python -m spai train \
+  --cfg configs/spai_cvt.yaml \
+  --data-path datasets/train.csv \
+  --csv-root-dir . \
+  --resume output/cvt_fixed_radius/finetune_cvt/exp/ckpt_epoch_9.pth \
+  --output output/cvt_fixed_radius \
+  --tag exp \
+  --amp-opt-level O0 \
+  --opt TRAIN.EPOCHS 35
+```
+
+The checkpoint restores model, optimizer, scheduler, and the next epoch. Here
+`TRAIN.EPOCHS` is the total target (35), not 35 additional epochs. When no explicit
+checkpoint is supplied and `TRAIN.AUTO_RESUME` is enabled, the trainer resumes from
+the newest checkpoint already present in the exact output/model/tag directory.
+
 ## :dna: Learnable Masking Radius (fork extension)
 
 This fork adds a **learnable frequency-masking radius** as a first step toward

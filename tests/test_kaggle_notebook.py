@@ -31,13 +31,22 @@ class TestKaggleNotebook(unittest.TestCase):
         self.assertIn("subprocess.run(command, check=True)", self.source)
         self.assertIn('run_command("git", "clone"', self.source)
         self.assertIn('run_module("gdown"', self.source)
-        self.assertEqual(self.source.count('"spai", "train"'), 2)
+        self.assertIn('run_module("spai", *fixed_train_args)', self.source)
+        self.assertIn('run_module("spai", *learnable_train_args)', self.source)
         self.assertEqual(self.source.count('"spai", "test"'), 2)
 
     def test_each_execution_uses_an_isolated_run_tag(self) -> None:
         self.assertIn('strftime("smoke_%Y%m%dT%H%M%S%fZ")', self.source)
         self.assertIn('f"{RUN_TAG}_fixed"', self.source)
         self.assertIn('f"{RUN_TAG}_learnable"', self.source)
+
+    def test_training_can_resume_from_full_checkpoints(self) -> None:
+        self.assertIn("FIXED_RESUME_CHECKPOINT = None", self.source)
+        self.assertIn("LEARNABLE_RESUME_CHECKPOINT = None", self.source)
+        self.assertEqual(
+            self.source.count('extend(("--resume",'),
+            2,
+        )
 
     def test_kaggle_metadata_enables_required_services(self) -> None:
         kaggle_metadata = self.notebook["metadata"]["kaggle"]
