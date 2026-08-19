@@ -132,6 +132,24 @@ def reduce_tensor(tensor):
     return rt
 
 
+def extract_mfm_encoder_state_dict(checkpoint_model: dict) -> dict:
+    """Return an MFM encoder state dict with exactly one wrapper prefix removed.
+
+    Phase-one MFM checkpoints contain both ``encoder.*`` and ``decoder.*``
+    entries. Only the encoder initializes the phase-two backbone. Removing the
+    prefix by slicing, rather than a global string replacement, preserves CvT's
+    nested ``encoder.encoder.*`` module names.
+    """
+
+    encoder_prefix = "encoder."
+    encoder_state = {
+        key[len(encoder_prefix):]: value
+        for key, value in checkpoint_model.items()
+        if key.startswith(encoder_prefix)
+    }
+    return encoder_state if encoder_state else checkpoint_model
+
+
 def load_pretrained(
     config,
     model,
@@ -143,18 +161,19 @@ def load_pretrained(
         checkpoint_path = pathlib.Path(config.PRETRAINED)
 
     if verbose:
-        logger.info(f">>>>>>>>>> Fine-tuned from {config.PRETRAINED} ..........")
+        logger.info(f">>>>>>>>>> Loading pretrained weights from {checkpoint_path} ..........")
     checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     checkpoint_model = checkpoint['model']
     checkpoint_epoch: Optional[int] = checkpoint.get('epoch', None)
 
-    if any([True if 'encoder.' in k else False for k in checkpoint_model.keys()]):
-        checkpoint_model = {
-            k.replace('encoder.', ''): v
-            for k, v in checkpoint_model.items() if k.startswith('encoder.')
-        }
+    is_mfm_checkpoint = any(key.startswith("encoder.") for key in checkpoint_model)
+    checkpoint_model = extract_mfm_encoder_state_dict(checkpoint_model)
+    if is_mfm_checkpoint:
         if verbose:
-            logger.info('Detect pre-trained model, remove [encoder.] prefix.')
+            logger.info(
+                "Detected an MFM checkpoint; selected encoder weights and removed "
+                "one leading [encoder.] prefix."
+            )
     else:
         if verbose:
             logger.info('Detect non-pre-trained model, pass without doing anything.')
@@ -165,17 +184,23 @@ def load_pretrained(
     elif config.MODEL.TYPE == 'vit':
         logger.info(f">>>>>>>>>> Remapping pre-trained keys for VIT ..........")
         checkpoint = remap_pretrained_keys_vit(model, checkpoint_model, logger)
+    elif config.MODEL.TYPE == 'cvt':
+        logger.info(">>>>>>>>>> Strictly loading CvT MFM encoder weights ..........")
     else:
         raise NotImplementedError
 
-    msg = model.load_state_dict(checkpoint_model, strict=False)
+    # CvT has no safe interpolation/remapping path: a mismatch means the
+    # checkpoint and configured architecture are incompatible and must fail.
+    msg = model.load_state_dict(
+        checkpoint_model, strict=config.MODEL.TYPE == "cvt"
+    )
     if verbose:
         logger.info(msg)
     
     del checkpoint
     torch.cuda.empty_cache()
     if verbose:
-        logger.info(f">>>>>>>>>> loaded successfully '{config.PRETRAINED}'")
+        logger.info(f">>>>>>>>>> loaded successfully '{checkpoint_path}'")
 
     return checkpoint_epoch
 

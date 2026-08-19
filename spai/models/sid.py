@@ -32,6 +32,7 @@ from . import vision_transformer
 from . import filters
 from . import utils
 from . import backbones
+from . import cvt
 from spai.utils import save_image_with_attention_overlay
 
 
@@ -40,7 +41,8 @@ class PatchBasedMFViT(nn.Module):
         self,
         vit: Union[vision_transformer.VisionTransformer,
                    backbones.CLIPBackbone,
-                   backbones.DINOv2Backbone],
+                   backbones.DINOv2Backbone,
+                   cvt.CvtBackbone],
         features_processor: 'FrequencyRestorationEstimator',
         cls_head: Optional[nn.Module],
         masking_radius: int,
@@ -411,7 +413,8 @@ class MFViT(nn.Module):
         self,
         vit: Union[vision_transformer.VisionTransformer,
                    backbones.CLIPBackbone,
-                   backbones.DINOv2Backbone],
+                   backbones.DINOv2Backbone,
+                   cvt.CvtBackbone],
         features_processor: 'FrequencyRestorationEstimator',
         cls_head: Optional[nn.Module],
         masking_radius: int,
@@ -445,11 +448,6 @@ class MFViT(nn.Module):
             self.soft_frequency_mask: filters.SoftCircularMask = filters.SoftCircularMask(
                 img_size, masking_radius, temperature=mask_temperature
             )
-            # With a fixed mask the backbone is frozen by running feature extraction
-            # under no_grad. That would also sever the gradient path towards the
-            # learnable radius, so instead the backbone weights are explicitly frozen
-            # and the autograd graph is kept for the frequency-filtered streams.
-            self.vit.requires_grad_(False)
         else:
             self.frequencies_mask: nn.Parameter = nn.Parameter(
                 filters.generate_circular_mask(img_size, masking_radius),
@@ -457,7 +455,8 @@ class MFViT(nn.Module):
             )
 
         if (isinstance(self.vit, vision_transformer.VisionTransformer)
-                or isinstance(self.vit, backbones.DINOv2Backbone)):
+                or isinstance(self.vit, backbones.DINOv2Backbone)
+                or isinstance(self.vit, cvt.CvtBackbone)):
             # ImageNet normalization
             self.backbone_norm = transforms.Normalize(
                 mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD
@@ -469,6 +468,19 @@ class MFViT(nn.Module):
             )
         else:
             raise TypeError(f"Unsupported backbone type: {type(vit)}")
+
+        if self.frozen_backbone:
+            self.freeze_backbone()
+        else:
+            self.unfreeze_backbone()
+
+    def train(self, mode: bool = True) -> 'MFViT':
+        """Keep a frozen backbone in eval mode, including CvT BatchNorm layers."""
+
+        super().train(mode)
+        if self.frozen_backbone:
+            self.vit.eval()
+        return self
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass of a batch of images.
@@ -575,13 +587,13 @@ class MFViT(nn.Module):
 
     def unfreeze_backbone(self) -> None:
         self.frozen_backbone = False
-        if self.learnable_radius:
-            self.vit.requires_grad_(True)
+        self.vit.requires_grad_(True)
+        self.vit.train(self.training)
 
     def freeze_backbone(self) -> None:
         self.frozen_backbone = True
-        if self.learnable_radius:
-            self.vit.requires_grad_(False)
+        self.vit.requires_grad_(False)
+        self.vit.eval()
 
     def _extract_features(
         self,
