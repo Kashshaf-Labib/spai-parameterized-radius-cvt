@@ -146,6 +146,33 @@ python -m spai train \
   --opt "DATA.TEST_PREFETCH_FACTOR" "1"
 ```
 
+### CvT-13 phase-one weights
+
+This fork can initialize phase-two SPAI from the CvT-13 MFM checkpoint available
+[here](https://drive.google.com/file/d/180hbXuIVAkXE3iT8BQO3ivoV1mBjz-r7/view?usp=drive_link).
+Save it as `weights/cvt_mfm_pretrain.pth`. Its SHA-256 is
+`016a6ae03fcf4297803907d354ad519ecc406867586e2e6e7fac391f32264c33`.
+
+The checkpoint contains the phase-one MFM encoder, not a complete SPAI detector,
+so it must be supplied with `--pretrained`:
+
+```bash
+python -m spai train \
+  --cfg configs/spai_cvt.yaml \
+  --batch-size 4 \
+  --data-path datasets/train.csv \
+  --csv-root-dir . \
+  --pretrained weights/cvt_mfm_pretrain.pth \
+  --output output/cvt_fixed_radius \
+  --tag exp \
+  --amp-opt-level O0
+```
+
+The CvT integration uses the ten homogeneous blocks of the final stage, producing
+features of shape `B x 10 x 196 x 384` for 224-pixel inputs. The resulting SPAI
+spectral vector has 1,084 elements. Use `--finetune-from` only when initializing
+from an already trained, complete phase-two SPAI checkpoint.
+
 ## :dna: Learnable Masking Radius (fork extension)
 
 This fork adds a **learnable frequency-masking radius** as a first step toward
@@ -155,22 +182,23 @@ learned during fine-tuning. See
 [docs/physics_informed_frequency_masking.md](docs/physics_informed_frequency_masking.md)
 for the full architecture walkthrough, formulas, and comparison with the original;
 [docs/learnable_radius.md](docs/learnable_radius.md) for a short how-to; and
-[kaggle/learnable_radius_smoke_test.ipynb](kaggle/learnable_radius_smoke_test.ipynb)
-for a runnable Kaggle example.
+[spai-parameterized-radius-fine-tuning.ipynb](spai-parameterized-radius-fine-tuning.ipynb)
+for a runnable Kaggle CvT example.
 
 ```bash
 python -m spai train \
-  --cfg configs/spai_learnable_radius.yaml \
+  --cfg configs/spai_cvt_learnable_radius.yaml \
   --batch-size 4 \
   --data-path datasets/medical.csv \
   --csv-root-dir . \
-  --finetune-from weights/spai.pth \
-  --output output/learnable_radius \
+  --pretrained weights/cvt_mfm_pretrain.pth \
+  --output output/cvt_learnable_radius \
   --tag exp \
   --amp-opt-level O0
 ```
 
-With the default `configs/spai.yaml` the behavior is unchanged from upstream SPAI.
+The original ViT configurations remain available as `configs/spai.yaml` and
+`configs/spai_learnable_radius.yaml`.
 
 ## :mag_right: Evaluation
 
