@@ -134,6 +134,7 @@ dmypy.json
 # custom
 .neptune
 weights
+cvt-weight/
 .DS_Store
 output/
 pretrains/
