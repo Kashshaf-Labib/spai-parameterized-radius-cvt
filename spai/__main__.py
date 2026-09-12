@@ -1102,7 +1102,7 @@ def train_one_epoch(
             if isinstance(criterion, TripletMarginLoss):
                 loss = criterion(anchor_outputs, positive_outputs, negative_outputs)
             else:
-                loss = criterion(outputs, targets)
+                loss = criterion(outputs.squeeze(dim=-1), targets)
             loss = loss / config.TRAIN.ACCUMULATION_STEPS
             if config.AMP_OPT_LEVEL != "O0":
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
@@ -1125,7 +1125,7 @@ def train_one_epoch(
             if isinstance(criterion, TripletMarginLoss):
                 loss = criterion(anchor_outputs, positive_outputs, negative_outputs)
             else:
-                loss = criterion(outputs.squeeze(), targets)
+                loss = criterion(outputs.squeeze(dim=-1), targets)
             optimizer.zero_grad()
             if config.AMP_OPT_LEVEL != "O0":
                 with amp.scale_loss(loss, optimizer) as scaled_loss:
