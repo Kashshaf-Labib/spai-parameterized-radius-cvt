@@ -203,11 +203,15 @@ def _arrange_class(
     resize_mode: str,
     recode: Optional[str],
     to_gray: bool,
+    progress_every: int = 500,
 ) -> collections.Counter:
     assignment = _split_groups(groups, train_ratio, val_ratio, seed)
     needs_reencode = target_size is not None or recode is not None or to_gray
     counts: collections.Counter = collections.Counter()
+    total = len(images)
 
+    # Re-encoding thousands of images (open, crop, convert, save) has no other output for
+    # what can be many minutes, which is easy to mistake for a hang and interrupt.
     for i, (path, group) in enumerate(zip(images, groups)):
         split = assignment[group]
         dest_dir = out_dir / split / class_dir_name
@@ -222,6 +226,12 @@ def _arrange_class(
         else:
             dest_path.write_bytes(path.read_bytes())
         counts[split] += 1
+
+        if progress_every and (i + 1) % progress_every == 0:
+            print(f"  {class_tag}: {i + 1}/{total} images written", flush=True)
+
+    if progress_every and total and total % progress_every != 0:
+        print(f"  {class_tag}: {total}/{total} images written", flush=True)
 
     return counts
 
